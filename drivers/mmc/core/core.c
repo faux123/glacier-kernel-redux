@@ -1503,6 +1503,7 @@ void mmc_set_embedded_sdio_data(struct mmc_host *host,
 	host->embedded_sdio_data.cccr = cccr;
 	host->embedded_sdio_data.funcs = funcs;
 	host->embedded_sdio_data.num_funcs = num_funcs;
+	case PM_POST_RESTORE:
 }
 
 EXPORT_SYMBOL(mmc_set_embedded_sdio_data);
