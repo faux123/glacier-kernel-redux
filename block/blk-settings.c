@@ -211,6 +211,32 @@ void blk_queue_bounce_limit(struct request_queue *q, u64 dma_mask)
 EXPORT_SYMBOL(blk_queue_bounce_limit);
 
 /**
+ * blk_queue_max_sectors - set max sectors for a request for this queue
+ * @q:  the request queue for the device
+ * @max_sectors:  max sectors in the usual 512b unit
+ *
+ * Description:
+ *    Enables a low level driver to set an upper limit on the size of
+ *    received requests.
+ **/
+void blk_queue_max_sectors(struct request_queue *q, unsigned int max_sectors)
+{
+	if ((max_sectors << 9) < PAGE_CACHE_SIZE) {
+		max_sectors = 1 << (PAGE_CACHE_SHIFT - 9);
+		printk(KERN_INFO "%s: set to minimum %d\n",
+		       __func__, max_sectors);
+	}
+
+	if (BLK_DEF_MAX_SECTORS > max_sectors)
+		q->limits.max_hw_sectors = q->limits.max_sectors = max_sectors;
+	else {
+		q->limits.max_sectors = BLK_DEF_MAX_SECTORS;
+		q->limits.max_hw_sectors = max_sectors;
+	}
+}
+EXPORT_SYMBOL(blk_queue_max_sectors);
+
+/**
  * blk_queue_max_hw_sectors - set max sectors for a request for this queue
  * @q:  the request queue for the device
  * @max_hw_sectors:  max hardware sectors in the usual 512b unit
@@ -251,6 +277,54 @@ void blk_queue_max_discard_sectors(struct request_queue *q,
 	q->limits.max_discard_sectors = max_discard_sectors;
 }
 EXPORT_SYMBOL(blk_queue_max_discard_sectors);
+
+/**
+ * blk_queue_max_phys_segments - set max phys segments for a request for this queue
+ * @q:  the request queue for the device
+ * @max_segments:  max number of segments
+ *
+ * Description:
+ *    Enables a low level driver to set an upper limit on the number of
+ *    physical data segments in a request.  This would be the largest sized
+ *    scatter list the driver could handle.
+ **/
+void blk_queue_max_phys_segments(struct request_queue *q,
+				 unsigned short max_segments)
+{
+	if (!max_segments) {
+		max_segments = 1;
+		printk(KERN_INFO "%s: set to minimum %d\n",
+		       __func__, max_segments);
+	}
+
+	q->limits.max_phys_segments = max_segments;
+}
+EXPORT_SYMBOL(blk_queue_max_phys_segments);
+
+/**
+ * blk_queue_max_hw_segments - set max hw segments for a request for this queue
+ * @q:  the request queue for the device
+ * @max_segments:  max number of segments
+ *
+ * Description:
+ *    Enables a low level driver to set an upper limit on the number of
+ *    hw data segments in a request.  This would be the largest number of
+ *    address/length pairs the host adapter can actually give at once
+ *    to the device.
+ **/
+void blk_queue_max_hw_segments(struct request_queue *q,
+			       unsigned short max_segments)
+{
+	if (!max_segments) {
+		max_segments = 1;
+		printk(KERN_INFO "%s: set to minimum %d\n",
+		       __func__, max_segments);
+	}
+
+	q->limits.max_hw_segments = max_segments;
+}
+EXPORT_SYMBOL(blk_queue_max_hw_segments);
+
 
 /**
  * blk_queue_max_segments - set max hw segments for a request for this queue

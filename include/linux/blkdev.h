@@ -322,6 +322,8 @@ struct queue_limits {
 
 	unsigned short		logical_block_size;
 	unsigned short		max_segments;
+	unsigned short		max_hw_segments;
+	unsigned short		max_phys_segments;
 
 	unsigned char		misaligned;
 	unsigned char		discard_misaligned;
@@ -930,8 +932,11 @@ extern struct request_queue *blk_init_allocated_queue(struct request_queue *,
 extern void blk_cleanup_queue(struct request_queue *);
 extern void blk_queue_make_request(struct request_queue *, make_request_fn *);
 extern void blk_queue_bounce_limit(struct request_queue *, u64);
+extern void blk_queue_max_sectors(struct request_queue *, unsigned int);
 extern void blk_queue_max_hw_sectors(struct request_queue *, unsigned int);
 extern void blk_queue_max_segments(struct request_queue *, unsigned short);
+extern void blk_queue_max_phys_segments(struct request_queue *, unsigned short);
+extern void blk_queue_max_hw_segments(struct request_queue *, unsigned short);
 extern void blk_queue_max_segment_size(struct request_queue *, unsigned int);
 extern void blk_queue_max_discard_sectors(struct request_queue *q,
 		unsigned int max_discard_sectors);

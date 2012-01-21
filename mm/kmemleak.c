@@ -157,6 +157,8 @@ struct kmemleak_object {
 	unsigned long jiffies;		/* creation timestamp */
 	pid_t pid;			/* pid of the current task */
 	char comm[TASK_COMM_LEN];	/* executable name */
+	unsigned long long ktime;	/* printk time */
+	unsigned long nanosec_rem;	/* printk nanosec */
 };
 
 /* flag representing the memory block allocation status */
@@ -209,6 +211,8 @@ static unsigned long jiffies_last_scan;
 static signed long jiffies_scan_wait;
 /* enables or disables the task stacks scanning */
 static int kmemleak_stack_scan = 1;
+/* disable kmemleak by default */
+static int kmemleak_default = 0;
 /* protects the memory scanning, parameters and debug/kmemleak file access */
 static DEFINE_MUTEX(scan_mutex);
 
@@ -344,9 +348,10 @@ static void print_unreferenced(struct seq_file *seq,
 
 	seq_printf(seq, "unreferenced object 0x%08lx (size %zu):\n",
 		   object->pointer, object->size);
-	seq_printf(seq, "  comm \"%s\", pid %d, jiffies %lu (age %d.%03ds)\n",
+	seq_printf(seq, "  comm \"%s\", pid %d, jiffies %lu (age %d.%03ds) [%5lu.%06lu]\n",
 		   object->comm, object->pid, object->jiffies,
-		   msecs_age / 1000, msecs_age % 1000);
+		   msecs_age / 1000, msecs_age % 1000,
+		   (unsigned long) object->ktime, object->nanosec_rem / 1000);
 	hex_dump_object(seq, object);
 	seq_printf(seq, "  backtrace:\n");
 
@@ -524,6 +529,8 @@ static struct kmemleak_object *create_object(unsigned long ptr, size_t size,
 	object->count = 0;			/* white color initially */
 	object->jiffies = jiffies;
 	object->checksum = 0;
+	object->ktime = cpu_clock(UINT_MAX);
+	object->nanosec_rem = do_div(object->ktime, 1000000000);
 
 	/* task information */
 	if (in_irq()) {
@@ -1260,8 +1267,13 @@ static void kmemleak_scan(void)
 	rcu_read_unlock();
 
 	if (new_leaks)
+#ifdef CONFIG_PROC_FS
+		pr_info("%d new suspected memory leaks (see "
+			"/proc/kmemleak)\n", new_leaks);
+#else
 		pr_info("%d new suspected memory leaks (see "
 			"/sys/kernel/debug/kmemleak)\n", new_leaks);
+#endif
 
 }
 
@@ -1593,6 +1605,31 @@ static void kmemleak_disable(void)
 	pr_info("Kernel memory leak detector disabled\n");
 }
 
+#if 1
+/*
+ * Allow boot-time kmemleak disabling (disabled by default).
+ */
+#include <mach/board.h>
+#define MODULE_NAME "kmemleak"
+static int kmemleak_boot_config(char *str)
+{
+	unsigned kernel_flag;
+
+	if (!str)
+		return -EINVAL;
+
+	kernel_flag = simple_strtoul(str, NULL, 16);
+	pr_info(MODULE_NAME ": %s(): get kernel_flag=0x%x\n", __func__, kernel_flag);
+
+	/* kernel_flag <-> kmemleak_boot_config mapping */
+	if (kernel_flag & BIT4)
+		kmemleak_default = 1;
+	else
+		kmemleak_disable();
+	return 0;
+}
+early_param("kernelflag", kmemleak_boot_config);
+#else
 /*
  * Allow boot-time kmemleak disabling (enabled by default).
  */
@@ -1607,6 +1644,7 @@ static int kmemleak_boot_config(char *str)
 	return 0;
 }
 early_param("kmemleak", kmemleak_boot_config);
+#endif
 
 /*
  * Kmemleak initialization.
@@ -1615,6 +1653,11 @@ void __init kmemleak_init(void)
 {
 	int i;
 	unsigned long flags;
+
+	if (!kmemleak_default) {
+		kmemleak_disable();
+		return;
+	}
 
 	jiffies_min_age = msecs_to_jiffies(MSECS_MIN_AGE);
 	jiffies_scan_wait = msecs_to_jiffies(SECS_SCAN_WAIT * 1000);
@@ -1667,12 +1710,21 @@ void __init kmemleak_init(void)
 	}
 }
 
+#ifdef CONFIG_PROC_FS
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#endif
+
 /*
  * Late initialization function.
  */
 static int __init kmemleak_late_init(void)
 {
+#ifdef CONFIG_PROC_FS
+	struct proc_dir_entry *p;
+#else
 	struct dentry *dentry;
+#endif
 
 	atomic_set(&kmemleak_initialized, 1);
 
@@ -1687,10 +1739,16 @@ static int __init kmemleak_late_init(void)
 		return -ENOMEM;
 	}
 
+#ifdef CONFIG_PROC_FS
+	p = proc_create("kmemleak", S_IRUGO, NULL, &kmemleak_fops);
+	if (!p)
+		pr_warning("Failed to create the proc kmemleak file\n");
+#else
 	dentry = debugfs_create_file("kmemleak", S_IRUGO, NULL, NULL,
 				     &kmemleak_fops);
 	if (!dentry)
 		pr_warning("Failed to create the debugfs kmemleak file\n");
+#endif
 	mutex_lock(&scan_mutex);
 	start_scan_thread();
 	mutex_unlock(&scan_mutex);

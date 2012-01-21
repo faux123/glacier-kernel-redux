@@ -103,12 +103,24 @@ static struct pm_qos_object network_throughput_pm_qos = {
 	.comparitor = max_compare
 };
 
+static BLOCKING_NOTIFIER_HEAD(system_bus_freq_notifier);
+static struct pm_qos_object system_bus_freq_pm_qos = {
+	.requests =
+		{LIST_HEAD_INIT(system_bus_freq_pm_qos.requests.list)},
+	.notifiers = &system_bus_freq_notifier,
+	.name = "system_bus_freq",
+	.default_value = 0,
+	.target_value = ATOMIC_INIT(0),
+	.comparitor = max_compare
+};
+
 
 static struct pm_qos_object *pm_qos_array[] = {
 	&null_pm_qos,
 	&cpu_dma_pm_qos,
 	&network_lat_pm_qos,
-	&network_throughput_pm_qos
+	&network_throughput_pm_qos,
+	&system_bus_freq_pm_qos
 };
 
 static DEFINE_SPINLOCK(pm_qos_lock);
@@ -151,10 +163,10 @@ static void update_target(int pm_qos_class)
 				extreme_value, node->value);
 	}
 	if (atomic_read(&pm_qos_array[pm_qos_class]->target_value) !=
-			extreme_value) {
+		extreme_value) {
 		call_notifier = 1;
 		atomic_set(&pm_qos_array[pm_qos_class]->target_value,
-				extreme_value);
+			extreme_value);
 		pr_debug(KERN_ERR "new target for qos %d is %d\n", pm_qos_class,
 			atomic_read(&pm_qos_array[pm_qos_class]->target_value));
 	}
@@ -162,8 +174,8 @@ static void update_target(int pm_qos_class)
 
 	if (call_notifier)
 		blocking_notifier_call_chain(
-				pm_qos_array[pm_qos_class]->notifiers,
-					(unsigned long) extreme_value, NULL);
+			pm_qos_array[pm_qos_class]->notifiers,
+			(unsigned long) extreme_value, NULL);
 }
 
 static int register_pm_qos_misc(struct pm_qos_object *qos)
@@ -253,18 +265,18 @@ void pm_qos_update_request(struct pm_qos_request_list *pm_qos_req,
 	s32 temp;
 
 	if (pm_qos_req) { /*guard against callers passing in null */
-		spin_lock_irqsave(&pm_qos_lock, flags);
-		if (new_value == PM_QOS_DEFAULT_VALUE)
+	spin_lock_irqsave(&pm_qos_lock, flags);
+			if (new_value == PM_QOS_DEFAULT_VALUE)
 			temp = pm_qos_array[pm_qos_req->pm_qos_class]->default_value;
-		else
+			else
 			temp = new_value;
 
 		if (temp != pm_qos_req->value) {
 			pending_update = 1;
 			pm_qos_req->value = temp;
-		}
-		spin_unlock_irqrestore(&pm_qos_lock, flags);
-		if (pending_update)
+	}
+	spin_unlock_irqrestore(&pm_qos_lock, flags);
+	if (pending_update)
 			update_target(pm_qos_req->pm_qos_class);
 	}
 }
@@ -334,6 +346,7 @@ int pm_qos_remove_notifier(int pm_qos_class, struct notifier_block *notifier)
 }
 EXPORT_SYMBOL_GPL(pm_qos_remove_notifier);
 
+
 static int pm_qos_power_open(struct inode *inode, struct file *filp)
 {
 	long pm_qos_class;
@@ -341,11 +354,11 @@ static int pm_qos_power_open(struct inode *inode, struct file *filp)
 	pm_qos_class = find_pm_qos_object_by_minor(iminor(inode));
 	if (pm_qos_class >= 0) {
 		filp->private_data = (void *) pm_qos_add_request(pm_qos_class,
-				PM_QOS_DEFAULT_VALUE);
+			PM_QOS_DEFAULT_VALUE);
 
 		if (filp->private_data)
-			return 0;
-	}
+	return 0;
+}
 	return -EPERM;
 }
 
@@ -358,7 +371,6 @@ static int pm_qos_power_release(struct inode *inode, struct file *filp)
 
 	return 0;
 }
-
 
 static ssize_t pm_qos_power_write(struct file *filp, const char __user *buf,
 		size_t count, loff_t *f_pos)
@@ -403,9 +415,15 @@ static int __init pm_qos_power_init(void)
 		return ret;
 	}
 	ret = register_pm_qos_misc(&network_throughput_pm_qos);
-	if (ret < 0)
+	if (ret < 0) {
 		printk(KERN_ERR
 			"pm_qos_param: network_throughput setup failed\n");
+		return 0;
+	}
+	ret = register_pm_qos_misc(&system_bus_freq_pm_qos);
+	if (ret < 0)
+		printk(KERN_ERR
+			"pm_qos_param: system_bus_freq setup failed\n");
 
 	return ret;
 }
